@@ -1,0 +1,65 @@
+# =============================================================================
+# params.yaml — Central config file for the entire pipeline
+# =============================================================================
+# WHY THIS FILE EXISTS:
+#   In real MLOps, hyperparameters are NEVER hardcoded inside scripts.
+#   They live here so that:
+#     1. DVC can detect when a param changes and re-run only affected stages
+#     2. MLflow can log them automatically for experiment comparison
+#     3. You can change a value here and run `dvc repro` — no code edits needed
+#
+# HOW TO USE:
+#   - Change any value below
+#   - Run `dvc repro` in terminal
+#   - DVC will detect the change and re-run the affected pipeline stages
+# =============================================================================
+
+# ---------------------------------------------------------
+# Data settings
+# ---------------------------------------------------------
+data:
+  raw_path: data/raw/titanic.csv          # Input: original Kaggle CSV
+  processed_path: data/processed/features.csv  # Output: cleaned feature matrix
+  test_size: 0.2                          # 20% of data held out for testing
+  random_state: 42                        # Seed for reproducibility
+
+# ---------------------------------------------------------
+# Feature engineering settings
+# ---------------------------------------------------------
+features:
+  # Columns to keep from the raw CSV after cleaning
+  # Try removing "Parch" or adding "SibSp" and run `dvc repro` to see DVC in action
+  use_columns:
+    - Pclass      # Passenger class (1st, 2nd, 3rd) — strong survival signal
+    - Sex         # Will be one-hot encoded (male=0, female=1)
+    - Age         # Will be filled with median if missing
+    - SibSp       # Number of siblings/spouses aboard
+    - Parch       # Number of parents/children aboard
+    - Fare        # Ticket fare — proxy for socioeconomic status
+    - Embarked    # Port of embarkation — will be one-hot encoded
+
+# ---------------------------------------------------------
+# Decision Tree hyperparameters
+# ---------------------------------------------------------
+# TRY CHANGING THESE and running `dvc repro` to see MLflow track new experiments
+model:
+  max_depth: 4          # Max depth of the tree (None = unlimited, causes overfitting)
+  criterion: gini       # Split quality measure: "gini" or "entropy"
+  min_samples_split: 10 # Min samples required to split an internal node
+  min_samples_leaf: 5   # Min samples required at a leaf node
+  random_state: 42      # For reproducible tree structure
+
+# ---------------------------------------------------------
+# MLflow settings
+# ---------------------------------------------------------
+mlflow:
+  experiment_name: titanic-survival       # Groups all runs under one experiment name
+  model_name: titanic-decision-tree       # Name used in the Model Registry
+  tracking_uri: mlruns                    # Local folder where MLflow stores run data
+
+# ---------------------------------------------------------
+# Quality gate (used in evaluate.py and GitHub Actions CI)
+# ---------------------------------------------------------
+evaluation:
+  min_accuracy: 0.77    # CI will FAIL if model accuracy drops below this threshold
+                        # This teaches students what a "model quality gate" is

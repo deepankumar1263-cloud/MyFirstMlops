@@ -1,0 +1,90 @@
+# =============================================================================
+# dvc.yaml — The DVC Pipeline Definition
+# =============================================================================
+# WHAT IS THIS FILE?
+#   This is the heart of DVC. It defines the pipeline as a Directed Acyclic
+#   Graph (DAG) of stages. Each stage has:
+#     - cmd     : the command to run
+#     - deps    : files/params this stage DEPENDS ON (DVC watches these for changes)
+#     - params  : specific keys in params.yaml to watch
+#     - outs    : files this stage PRODUCES (DVC caches these)
+#     - metrics : output files that contain metrics (readable by `dvc metrics show`)
+#
+# HOW SMART CACHING WORKS:
+#   DVC hashes every dep and param. Before running a stage, it checks:
+#   "Have any of my deps or params changed since last run?"
+#   If NO → skip this stage (use cached output)
+#   If YES → re-run this stage (and all downstream stages that depend on it)
+#
+# CLASS DEMO — Try this sequence:
+#   1. `dvc repro`                   → runs all 3 stages
+#   2. `dvc repro`                   → all stages skipped (nothing changed!)
+#   3. Edit params.yaml: change max_depth from 4 to 6
+#   4. `dvc repro`                   → preprocess SKIPPED, train+evaluate RE-RUN
+#   5. `dvc repro`                   → all skipped again
+#   This is pipeline caching in action.
+# =============================================================================
+
+stages:
+
+  # ---------------------------------------------------------------------------
+  # Stage 1: Preprocess
+  # ---------------------------------------------------------------------------
+  # Depends on: raw data file + feature config in params.yaml
+  # Produces: processed feature matrix
+  preprocess:
+    cmd: python src/preprocess.py
+    deps:
+      - src/preprocess.py              # If this script changes → re-run
+      - data/raw/titanic.csv           # If the raw data changes → re-run
+    params:
+      - params.yaml:                   # DVC watches ONLY these specific keys
+        - data.raw_path
+        - data.processed_path
+        - features.use_columns         # Change feature list → re-run preprocess
+    outs:
+      - data/processed/features.csv   # DVC caches this output
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Train
+  # ---------------------------------------------------------------------------
+  # Depends on: processed data + model hyperparams
+  # Produces: trained model pickle + MLflow run
+  train:
+    cmd: python src/train.py
+    deps:
+      - src/train.py                   # Script change → re-run
+      - data/processed/features.csv   # Upstream output change → re-run
+    params:
+      - params.yaml:
+        - data.test_size
+        - data.random_state
+        - model.max_depth              # Change any hyperparam → re-run train
+        - model.criterion
+        - model.min_samples_split
+        - model.min_samples_leaf
+        - model.random_state
+        - mlflow.experiment_name
+    outs:
+      - models/dt_model.pkl           # Trained model (DVC tracked)
+      - models/run_id.txt             # MLflow run ID for evaluate.py
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Evaluate
+  # ---------------------------------------------------------------------------
+  # Depends on: trained model + test split config
+  # Produces: metrics.json (DVC metrics file)
+  evaluate:
+    cmd: python src/evaluate.py
+    deps:
+      - src/evaluate.py
+      - models/dt_model.pkl           # If model changes → re-run evaluation
+      - data/processed/features.csv
+    params:
+      - params.yaml:
+        - data.test_size
+        - data.random_state
+        - evaluation.min_accuracy     # Change threshold → re-run evaluate
+    metrics:
+      - metrics.json:                 # `dvc metrics show` reads this file
+          cache: false                # Don't cache metrics (track in git instead)

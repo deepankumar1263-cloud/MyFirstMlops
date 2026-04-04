@@ -1,0 +1,120 @@
+# =============================================================================
+# .github/workflows/ci.yml — GitHub Actions CI/CD Workflow
+# =============================================================================
+# WHAT THIS DOES:
+#   Every time code is pushed to the `main` branch, GitHub automatically:
+#     1. Spins up a fresh Ubuntu machine
+#     2. Installs all dependencies
+#     3. Runs the full DVC pipeline (preprocess → train → evaluate)
+#     4. The quality gate in evaluate.py either passes or fails the build
+#
+# WHY THIS MATTERS (teach this to students):
+#   Without CI, a developer can break the model pipeline and nobody notices
+#   until someone manually runs it. With CI:
+#     - Every push is automatically tested
+#     - A broken pipeline = red X on GitHub = team is alerted immediately
+#     - No bad model can reach the registry without passing the quality gate
+#
+# HOW TO DEMO IN CLASS:
+#   1. Push a change that breaks the model (e.g. remove "Sex" from use_columns)
+#   2. Show the red X on GitHub Actions tab
+#   3. Fix the change, push again → green checkmark
+#   4. Students see automated gatekeeping in action
+#
+# NOTE ON DVC REMOTE:
+#   This workflow uses a LOCAL DVC cache stored inside the repo for simplicity.
+#   In production, you'd configure a cloud remote (S3, GCS, etc.) and add:
+#     - run: dvc pull   (before dvc repro)
+# =============================================================================
+
+name: MLOps Pipeline CI
+
+on:
+  push:
+    branches: [ main ]        # Trigger on every push to main
+  pull_request:
+    branches: [ main ]        # Also trigger on PRs targeting main
+  workflow_dispatch:          # Allow manual trigger from GitHub UI (useful for demos)
+
+jobs:
+  train-and-evaluate:
+    name: Run ML Pipeline + Quality Gate
+    runs-on: ubuntu-latest    # Fresh Ubuntu VM for every run
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Check out the repository code
+      # -----------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Set up Python environment
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"              # Cache pip downloads to speed up future runs
+
+      # -----------------------------------------------------------------------
+      # Step 3: Install all dependencies
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "Dependencies installed successfully"
+
+      # -----------------------------------------------------------------------
+      # Step 4: Initialize DVC
+      # -----------------------------------------------------------------------
+      - name: Initialize DVC
+        run: |
+          dvc init --no-scm || true   # --no-scm because git is already initialized
+          echo "DVC initialized"
+
+      # -----------------------------------------------------------------------
+      # Step 5: Run the full DVC pipeline
+      # -----------------------------------------------------------------------
+      # TEACHING POINT: `dvc repro` runs all 3 stages in order.
+      # If a stage's deps haven't changed, it uses cached output.
+      # The --no-commit flag skips pushing to DVC remote (we don't have one in CI)
+      - name: Run DVC pipeline (preprocess → train → evaluate)
+        run: |
+          dvc repro --no-commit
+          echo "Pipeline completed"
+
+      # -----------------------------------------------------------------------
+      # Step 6: Show metrics
+      # -----------------------------------------------------------------------
+      # This prints the contents of metrics.json to the CI log
+      # Students can see the model's accuracy for every push in the Actions tab
+      - name: Show model metrics
+        run: |
+          echo "=== Model Metrics ==="
+          cat metrics.json
+          echo "====================="
+
+      # -----------------------------------------------------------------------
+      # Step 7: The quality gate already ran inside evaluate.py
+      # -----------------------------------------------------------------------
+      # If evaluate.py exited with code 1 (accuracy < threshold),
+      # the `dvc repro` step above would have failed and we wouldn't reach here.
+      # This step is just a confirmation message.
+      - name: Quality gate status
+        run: |
+          echo "Quality gate passed! Model accuracy meets the minimum threshold."
+          echo "Model is ready for manual promotion to MLflow Registry."
+
+      # -----------------------------------------------------------------------
+      # Step 8: Upload metrics as a CI artifact
+      # -----------------------------------------------------------------------
+      # This makes metrics.json downloadable from the GitHub Actions run page.
+      # Students can download and inspect it after each run.
+      - name: Upload metrics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-metrics
+          path: metrics.json
+          retention-days: 30       # Keep for 30 days

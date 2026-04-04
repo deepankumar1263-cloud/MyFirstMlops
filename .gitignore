@@ -1,0 +1,26 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# DVC cache (stays local, not pushed to git)
+.dvc/cache/
+.dvc/tmp/
+
+# MLflow run data (local only — in real projects you'd use a remote MLflow server)
+mlruns/
+
+# Model pickle files (tracked by DVC, not git)
+models/*.pkl
+models/run_id.txt
+
+# Raw data (tracked by DVC .dvc files, not git directly)
+data/raw/titanic.csv
+data/processed/
+
+# IDE
+.vscode/
+.idea/
+*.DS_Store
